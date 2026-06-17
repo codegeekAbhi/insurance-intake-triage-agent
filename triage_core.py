@@ -2,6 +2,7 @@ import json
 import re
 import time
 import pandas as pd
+from groq import RateLimitError
 
 MODEL = "llama-3.3-70b-versatile"
 
@@ -88,15 +89,23 @@ def parse_json_response(raw_text):
     return json.loads(cleaned)
 
 
-def triage(client, description, system_prompt=SYSTEM_PROMPT_V1, model=MODEL):
-    response = client.chat.completions.create(
-        model=model,
-        temperature=0.1,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": description},
-        ],
-    )
+def triage(client, description, system_prompt=SYSTEM_PROMPT_V1, model=MODEL, max_retries=3):
+    response = None
+    for attempt in range(max_retries + 1):
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                temperature=0.1,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": description},
+                ],
+            )
+            break
+        except RateLimitError:
+            if attempt == max_retries:
+                return {"error": "rate_limited", "raw": "Groq rate limit hit, retries exhausted. Wait a minute and try again."}
+            time.sleep(8 * (attempt + 1))
     raw = response.choices[0].message.content
     try:
         return parse_json_response(raw)
@@ -137,7 +146,7 @@ def run_eval(client, eval_set, system_prompt=SYSTEM_PROMPT_V1, label="run", prog
         rows.append({"description": case["description"][:60] + "...", **scores})
         if progress_callback:
             progress_callback((i + 1) / total)
-        time.sleep(0.3)
+        time.sleep(2.2)
     df = pd.DataFrame(rows)
     summary = {
         "label": label,
