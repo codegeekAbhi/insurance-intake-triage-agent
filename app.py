@@ -4,7 +4,27 @@ from groq import Groq
 
 import triage_core as tc
 
-st.set_page_config(page_title="Harper Triage Agent", layout="centered")
+st.set_page_config(page_title="Harper Triage Agent", layout="wide")
+
+st.markdown(
+    """
+    <style>
+    div[data-testid="stMetric"] {
+        background-color: #161B22;
+        border: 1px solid #21262d;
+        border-radius: 10px;
+        padding: 12px 16px;
+    }
+    div[data-testid="stTextArea"] textarea {
+        border-radius: 8px;
+    }
+    button[kind="primary"] {
+        border-radius: 8px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # API key: prefer Streamlit secrets (used on Streamlit Cloud), fall back to a
 # manual sidebar entry for local testing. The key is never written to disk.
@@ -37,15 +57,16 @@ with tab1:
             st.error("Could not parse a response. Raw output below.")
             st.code(result.get("raw", ""))
         else:
-            col1, col2 = st.columns(2)
-            col1.metric("Subtype", result.get("subtype", "-"))
-            col1.metric("Urgency", result.get("urgency", "-"))
-            col2.metric("Routing", result.get("routing", "-"))
-            col2.metric("Confidence", f"{result.get('confidence', 0):.2f}")
-            st.write("**Coverage lines:** " + ", ".join(result.get("coverage_lines", [])))
-            st.write("**Rationale:** " + result.get("rationale", ""))
-            if result.get("guardrail_triggered"):
-                st.info("Confidence was below the threshold, routing was overridden to human.")
+            with st.container(border=True):
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Subtype", result.get("subtype", "-"))
+                col2.metric("Urgency", result.get("urgency", "-"))
+                col3.metric("Routing", result.get("routing", "-"))
+                col4.metric("Confidence", f"{result.get('confidence', 0):.2f}")
+                st.write("**Coverage lines:** " + ", ".join(result.get("coverage_lines", [])))
+                st.write("**Rationale:** " + result.get("rationale", ""))
+                if result.get("guardrail_triggered"):
+                    st.info("Confidence was at or below the threshold, routing was overridden to human.")
 
 with tab2:
     st.write(f"{len(tc.EVAL_SET)} labeled scenarios in the golden set, across used car dealers, tow operators, freight carriers, and auto repair shops.")
@@ -64,11 +85,13 @@ with tab2:
         progress.empty()
 
         comparison = pd.DataFrame([baseline_summary, v2_summary]).set_index("label")
-        st.subheader("Baseline vs iterated prompt")
-        st.dataframe(comparison.style.format("{:.2f}"))
-        st.bar_chart(comparison.T)
+        with st.container(border=True):
+            st.subheader("Baseline vs iterated prompt")
+            st.dataframe(comparison.style.format("{:.2f}"), use_container_width=True)
+            st.bar_chart(comparison.T)
 
-        with st.expander("Baseline failure cases"):
-            st.dataframe(
-                baseline_df[(baseline_df["subtype_correct"] == False) | (baseline_df["coverage_overlap"] < 1.0)]
-            )
+            with st.expander("Baseline failure cases"):
+                st.dataframe(
+                    baseline_df[(baseline_df["subtype_correct"] == False) | (baseline_df["coverage_overlap"] < 1.0)],
+                    use_container_width=True,
+                )
