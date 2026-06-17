@@ -1,18 +1,9 @@
-import subprocess, sys
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "groq", "pandas"])
-
-import os
-from getpass import getpass
-from groq import Groq
-
-if "GROQ_API_KEY" not in os.environ:
-    os.environ["GROQ_API_KEY"] = getpass("Enter your Groq API key, free at console.groq.com: ")
-
-client = Groq()
-MODEL = "llama-3.3-70b-versatile"
-
 import json
 import re
+import time
+import pandas as pd
+
+MODEL = "llama-3.3-70b-versatile"
 
 SYSTEM_PROMPT_V1 = """You are an insurance intake triage assistant for Harper, a commercial insurance company.
 
@@ -35,29 +26,20 @@ Guidance:
 - Routing should be human whenever urgency is high or the situation is unusual, otherwise web is fine for routine cases.
 """
 
-def parse_json_response(raw_text):
-    cleaned = raw_text.strip()
-    cleaned = re.sub(r"^```(json)?", "", cleaned).strip()
-    cleaned = re.sub(r"```$", "", cleaned).strip()
-    return json.loads(cleaned)
+SYSTEM_PROMPT_V2 = SYSTEM_PROMPT_V1 + """
 
-def triage(description, system_prompt=SYSTEM_PROMPT_V1, model=MODEL):
-    response = client.chat.completions.create(
-        model=model,
-        temperature=0.1,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": description},
-        ],
-    )
-    raw = response.choices[0].message.content
-    try:
-        return parse_json_response(raw)
-    except Exception as e:
-        return {"error": str(e), "raw": raw}
+Examples of edge cases to handle carefully:
 
-# quick smoke test
-print(triage("Family owned used car lot in Ohio, about 40 vehicles, dealer plates renew next week"))
+Example 1:
+Business: "Freight brokerage that books loads for other carriers but does not own trucks."
+Correct output: subtype is freight_carrier, coverage_lines is only ["General Liability"], because a brokerage with no owned trucks does not need Commercial Auto or Inland Marine.
+
+Example 2:
+Business: "Auto repair shop owner asking about home based garage coverage, business not yet operating."
+Correct output: subtype is auto_repair_shop, coverage_lines is only ["General Liability"], because Garage Liability applies once the business is actively servicing vehicles for customers, not before.
+
+Use the same reasoning pattern for similar edge cases: a business that does not yet own or operate the physical assets a coverage line protects does not need that line yet.
+"""
 
 EVAL_SET = [
     {"description": "Family owned used car dealership in Ohio with about 40 vehicles on the lot. Dealer plates renew next week and they want to make sure coverage does not lapse.",
@@ -98,8 +80,39 @@ EVAL_SET = [
      "subtype": "freight_carrier", "coverage_lines": ["Commercial Auto", "Inland Marine"], "urgency": "high", "routing": "human"},
 ]
 
-import pandas as pd
-import time
+
+def parse_json_response(raw_text):
+    cleaned = raw_text.strip()
+    cleaned = re.sub(r"^```(json)?", "", cleaned).strip()
+    cleaned = re.sub(r"```$", "", cleaned).strip()
+    return json.loads(cleaned)
+
+
+def triage(client, description, system_prompt=SYSTEM_PROMPT_V1, model=MODEL):
+    response = client.chat.completions.create(
+        model=model,
+        temperature=0.1,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": description},
+        ],
+    )
+    raw = response.choices[0].message.content
+    try:
+        return parse_json_response(raw)
+    except Exception as e:
+        return {"error": str(e), "raw": raw}
+
+
+def triage_with_guardrail(client, description, system_prompt=SYSTEM_PROMPT_V1, threshold=0.7):
+    predicted = triage(client, description, system_prompt=system_prompt)
+    if "error" not in predicted and predicted.get("confidence", 1.0) < threshold:
+        predicted["routing"] = "human"
+        predicted["guardrail_triggered"] = True
+    else:
+        predicted["guardrail_triggered"] = False
+    return predicted
+
 
 def score_case(predicted, expected):
     if "error" in predicted:
@@ -114,12 +127,16 @@ def score_case(predicted, expected):
         "routing_correct": predicted.get("routing") == expected["routing"],
     }
 
-def run_eval(eval_set, system_prompt=SYSTEM_PROMPT_V1, label="run"):
+
+def run_eval(client, eval_set, system_prompt=SYSTEM_PROMPT_V1, label="run", progress_callback=None):
     rows = []
-    for case in eval_set:
-        predicted = triage(case["description"], system_prompt=system_prompt)
+    total = len(eval_set)
+    for i, case in enumerate(eval_set):
+        predicted = triage(client, case["description"], system_prompt=system_prompt)
         scores = score_case(predicted, case)
         rows.append({"description": case["description"][:60] + "...", **scores})
+        if progress_callback:
+            progress_callback((i + 1) / total)
         time.sleep(0.3)
     df = pd.DataFrame(rows)
     summary = {
@@ -130,65 +147,3 @@ def run_eval(eval_set, system_prompt=SYSTEM_PROMPT_V1, label="run"):
         "routing_accuracy": df["routing_correct"].mean(),
     }
     return df, summary
-
-baseline_df, baseline_summary = run_eval(EVAL_SET, SYSTEM_PROMPT_V1, label="baseline, v1 prompt")
-print("\nBASELINE SUMMARY")
-print(baseline_summary)
-
-def triage_with_guardrail(description, system_prompt=SYSTEM_PROMPT_V1, threshold=0.7):
-    predicted = triage(description, system_prompt=system_prompt)
-    if "error" not in predicted and predicted.get("confidence", 1.0) < threshold:
-        predicted["routing"] = "human"
-        predicted["guardrail_triggered"] = True
-    else:
-        predicted["guardrail_triggered"] = False
-    return predicted
-
-def run_eval_with_guardrail(eval_set, system_prompt=SYSTEM_PROMPT_V1, threshold=0.7, label="run"):
-    rows = []
-    for case in eval_set:
-        predicted = triage_with_guardrail(case["description"], system_prompt=system_prompt, threshold=threshold)
-        scores = score_case(predicted, case)
-        rows.append({"description": case["description"][:60] + "...", **scores,
-                      "guardrail_triggered": predicted.get("guardrail_triggered", False)})
-        time.sleep(0.3)
-    df = pd.DataFrame(rows)
-    summary = {
-        "label": label,
-        "subtype_accuracy": df["subtype_correct"].mean(),
-        "coverage_overlap": df["coverage_overlap"].mean(),
-        "urgency_accuracy": df["urgency_correct"].mean(),
-        "routing_accuracy": df["routing_correct"].mean(),
-        "guardrail_trigger_rate": df["guardrail_triggered"].mean(),
-    }
-    return df, summary
-
-guardrail_df, guardrail_summary = run_eval_with_guardrail(EVAL_SET, SYSTEM_PROMPT_V1, label="v1 prompt plus guardrail")
-print("\nGUARDRAIL SUMMARY")
-print(guardrail_summary)
-
-print("\nBASELINE FAILURE CASES")
-print(baseline_df[(baseline_df["subtype_correct"] == False) | (baseline_df["coverage_overlap"] < 1.0)])
-
-SYSTEM_PROMPT_V2 = SYSTEM_PROMPT_V1 + """
-
-Examples of edge cases to handle carefully:
-
-Example 1:
-Business: "Freight brokerage that books loads for other carriers but does not own trucks."
-Correct output: subtype is freight_carrier, coverage_lines is only ["General Liability"], because a brokerage with no owned trucks does not need Commercial Auto or Inland Marine.
-
-Example 2:
-Business: "Auto repair shop owner asking about home based garage coverage, business not yet operating."
-Correct output: subtype is auto_repair_shop, coverage_lines is only ["General Liability"], because Garage Liability applies once the business is actively servicing vehicles for customers, not before.
-
-Use the same reasoning pattern for similar edge cases: a business that does not yet own or operate the physical assets a coverage line protects does not need that line yet.
-"""
-
-v2_df, v2_summary = run_eval(EVAL_SET, SYSTEM_PROMPT_V2, label="v2 prompt, after iteration")
-print("\nV2 SUMMARY")
-print(v2_summary)
-
-comparison = pd.DataFrame([baseline_summary, v2_summary]).set_index("label")
-print("\nBASELINE VS V2 COMPARISON")
-print(comparison)
