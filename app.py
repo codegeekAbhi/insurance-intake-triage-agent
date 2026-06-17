@@ -6,25 +6,11 @@ import triage_core as tc
 
 st.set_page_config(page_title="Harper Triage Agent", layout="wide")
 
-st.markdown(
-    """
-    <style>
-    div[data-testid="stMetric"] {
-        background-color: #161B22;
-        border: 1px solid #21262d;
-        border-radius: 10px;
-        padding: 12px 16px;
-    }
-    div[data-testid="stTextArea"] textarea {
-        border-radius: 8px;
-    }
-    button[kind="primary"] {
-        border-radius: 8px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+def load_css(path):
+    with open(path) as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
+load_css("style.css")
 
 # API key: prefer Streamlit secrets (used on Streamlit Cloud), fall back to a
 # manual sidebar entry for local testing. The key is never written to disk.
@@ -70,7 +56,7 @@ with tab1:
 
 with tab2:
     st.write(f"{len(tc.EVAL_SET)} labeled scenarios in the golden set, across used car dealers, tow operators, freight carriers, and auto repair shops.")
-    st.write("Running this calls the model once per scenario, twice, for the baseline prompt and the iterated prompt. Expect it to take a minute or two on the free tier.")
+    st.write("Running this calls the model once per scenario, twice, for the baseline prompt and the iterated prompt, spaced out to stay under Groq's free tier rate limit. Expect it to take two to three minutes.")
 
     if st.button("Run baseline vs iterated prompt comparison"):
         progress = st.progress(0.0, text="Running baseline prompt...")
