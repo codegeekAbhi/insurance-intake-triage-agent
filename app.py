@@ -67,8 +67,6 @@ with tab2:
     )
     eval_subset = quick_subset if mode.startswith("Quick") else tc.EVAL_SET
 
-    st.caption("Calls are spaced out to stay under Groq's free tier rate limit. Once a given prompt and eval set has been run, the result is cached and comes back instantly on the next click.")
-
     @st.cache_data(show_spinner=False)
     def cached_run_eval(_client, eval_set, system_prompt, label, _progress_callback=None):
         return tc.run_eval(_client, eval_set, system_prompt, label=label, progress_callback=_progress_callback)
