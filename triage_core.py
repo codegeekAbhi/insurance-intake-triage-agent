@@ -106,7 +106,7 @@ def triage(client, description, system_prompt=SYSTEM_PROMPT_V1, model=MODEL):
 
 def triage_with_guardrail(client, description, system_prompt=SYSTEM_PROMPT_V1, threshold=0.7):
     predicted = triage(client, description, system_prompt=system_prompt)
-    if "error" not in predicted and predicted.get("confidence", 1.0) < threshold:
+    if "error" not in predicted and predicted.get("confidence", 1.0) <= threshold:
         predicted["routing"] = "human"
         predicted["guardrail_triggered"] = True
     else:
