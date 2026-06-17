@@ -1,0 +1,30 @@
+/* Harper Triage Agent: page and component styling */
+
+.stApp {
+    background-color: #0E1117;
+}
+
+div[data-testid="stMetric"] {
+    background-color: #161B22;
+    border: 1px solid #21262d;
+    border-radius: 10px;
+    padding: 12px 16px;
+}
+
+div[data-testid="stMetric"] label {
+    color: #9CA8B5 !important;
+    font-weight: 600 !important;
+}
+
+div[data-testid="stMetricValue"] {
+    color: #F0F4F8 !important;
+    font-weight: 700 !important;
+}
+
+div[data-testid="stTextArea"] textarea {
+    border-radius: 8px;
+}
+
+button[kind="primary"] {
+    border-radius: 8px;
+}
