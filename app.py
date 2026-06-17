@@ -55,18 +55,33 @@ with tab1:
                     st.info("Confidence was at or below the threshold, routing was overridden to human.")
 
 with tab2:
-    st.write(f"{len(tc.EVAL_SET)} labeled scenarios in the golden set, across used car dealers, tow operators, freight carriers, and auto repair shops.")
-    st.write("Running this calls the model once per scenario, twice, for the baseline prompt and the iterated prompt, spaced out to stay under Groq's free tier rate limit. Expect it to take two to three minutes.")
+    quick_subset = tc.EVAL_SET[:8]  # one of each subtype, including both tricky edge cases
+
+    st.write(f"The full golden set has {len(tc.EVAL_SET)} labeled scenarios across used car dealers, tow operators, freight carriers, and auto repair shops.")
+
+    mode = st.radio(
+        "Eval set size",
+        [f"Quick demo, {len(quick_subset)} scenarios, about 30 to 45 seconds",
+         f"Full eval, {len(tc.EVAL_SET)} scenarios, about 2 to 3 minutes"],
+        horizontal=True,
+    )
+    eval_subset = quick_subset if mode.startswith("Quick") else tc.EVAL_SET
+
+    st.caption("Calls are spaced out to stay under Groq's free tier rate limit. Once a given prompt and eval set has been run, the result is cached and comes back instantly on the next click.")
+
+    @st.cache_data(show_spinner=False)
+    def cached_run_eval(_client, eval_set, system_prompt, label, _progress_callback=None):
+        return tc.run_eval(_client, eval_set, system_prompt, label=label, progress_callback=_progress_callback)
 
     if st.button("Run baseline vs iterated prompt comparison"):
         progress = st.progress(0.0, text="Running baseline prompt...")
-        baseline_df, baseline_summary = tc.run_eval(
-            client, tc.EVAL_SET, tc.SYSTEM_PROMPT_V1, label="baseline, v1 prompt",
-            progress_callback=lambda p: progress.progress(p * 0.5, text="Running baseline prompt..."),
+        baseline_df, baseline_summary = cached_run_eval(
+            client, eval_subset, tc.SYSTEM_PROMPT_V1, "baseline, v1 prompt",
+            _progress_callback=lambda p: progress.progress(p * 0.5, text="Running baseline prompt..."),
         )
-        v2_df, v2_summary = tc.run_eval(
-            client, tc.EVAL_SET, tc.SYSTEM_PROMPT_V2, label="v2 prompt, after iteration",
-            progress_callback=lambda p: progress.progress(0.5 + p * 0.5, text="Running iterated prompt..."),
+        v2_df, v2_summary = cached_run_eval(
+            client, eval_subset, tc.SYSTEM_PROMPT_V2, "v2 prompt, after iteration",
+            _progress_callback=lambda p: progress.progress(0.5 + p * 0.5, text="Running iterated prompt..."),
         )
         progress.empty()
 
