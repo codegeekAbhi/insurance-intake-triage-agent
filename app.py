@@ -68,20 +68,18 @@ with tab2:
     eval_subset = quick_subset if mode.startswith("Quick") else tc.EVAL_SET
 
     @st.cache_data(show_spinner=False)
-    def cached_run_eval(_client, eval_set, system_prompt, label, _progress_callback=None):
-        return tc.run_eval(_client, eval_set, system_prompt, label=label, progress_callback=_progress_callback)
+    def cached_run_eval(_client, eval_set, system_prompt, label):
+        return tc.run_eval(_client, eval_set, system_prompt, label=label)
 
     if st.button("Run baseline vs iterated prompt comparison"):
-        progress = st.progress(0.0, text="Running baseline prompt...")
-        baseline_df, baseline_summary = cached_run_eval(
-            client, eval_subset, tc.SYSTEM_PROMPT_V1, "baseline, v1 prompt",
-            _progress_callback=lambda p: progress.progress(p * 0.5, text="Running baseline prompt..."),
-        )
-        v2_df, v2_summary = cached_run_eval(
-            client, eval_subset, tc.SYSTEM_PROMPT_V2, "v2 prompt, after iteration",
-            _progress_callback=lambda p: progress.progress(0.5 + p * 0.5, text="Running iterated prompt..."),
-        )
-        progress.empty()
+        with st.spinner("Running baseline prompt..."):
+            baseline_df, baseline_summary = cached_run_eval(
+                client, eval_subset, tc.SYSTEM_PROMPT_V1, "baseline, v1 prompt",
+            )
+        with st.spinner("Running iterated prompt..."):
+            v2_df, v2_summary = cached_run_eval(
+                client, eval_subset, tc.SYSTEM_PROMPT_V2, "v2 prompt, after iteration",
+            )
 
         comparison = pd.DataFrame([baseline_summary, v2_summary]).set_index("label")
         with st.container(border=True):
